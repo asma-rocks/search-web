@@ -92,11 +92,8 @@ func main() {
 		}
 
 		w.Header().Add("content-type", "application/json")
+		w.Header().Add("access-control-allow-origin", "*")
 		w.Write([]byte(out))
-	})
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Welcome to my website!")
 	})
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
