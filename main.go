@@ -3,11 +3,11 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/blevesearch/bleve"
 )
@@ -56,6 +56,7 @@ func removeIndexFromHits(sr *bleve.SearchResult) {
 func main() {
 	indexDir := flag.String("i", "asma.bleve", "A path to an bleve index")
 	asmaDir := flag.String("a", "", "A path to asma archive directory")
+	staticDir := flag.String("s", "static", "A path to static asset directory")
 	flag.Parse()
 
 	Index, err := bleve.Open(*indexDir)
@@ -63,11 +64,11 @@ func main() {
 		log.Fatalln("Index directory not found")
 	}
 
-	fmt.Println(Index)
+	asmaFs := http.FileServer(http.Dir(*asmaDir))
+	http.Handle("/asma/", http.StripPrefix("/asma/", asmaFs))
 
-	fs := http.FileServer(http.Dir(*asmaDir))
-
-	http.Handle("/static/", http.StripPrefix("/static/", fs))
+	staticFs := http.FileServer(http.Dir(*staticDir))
+	http.Handle("/", staticFs)
 
 	http.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		params := NewParams(r.URL)
@@ -85,6 +86,51 @@ func main() {
 		}
 
 		removeIndexFromHits(searchResults)
+
+		out, err := json.Marshal(searchResults)
+		if err != nil {
+			log.Fatalln("Failed to serialize")
+		}
+
+		w.Header().Add("content-type", "application/json")
+		w.Header().Add("access-control-allow-origin", "*")
+		w.Write([]byte(out))
+	})
+
+	http.HandleFunc("/prefix", func(w http.ResponseWriter, r *http.Request) {
+		params := NewParams(r.URL)
+		sq := bleve.NewPrefixQuery(strings.ToLower(params.Query))
+		newSearch := bleve.NewSearchRequestOptions(sq, params.Size, params.From, false)
+
+		searchResults, searchErr := Index.Search(newSearch)
+		if searchErr != nil {
+			log.Fatalln("Search failed")
+		}
+
+		// removeIndexFromHits(searchResults)
+
+		out, err := json.Marshal(searchResults)
+		if err != nil {
+			log.Fatalln("Failed to serialize")
+		}
+
+		w.Header().Add("content-type", "application/json")
+		w.Header().Add("access-control-allow-origin", "*")
+		w.Write([]byte(out))
+	})
+
+	http.HandleFunc("/fuzzy", func(w http.ResponseWriter, r *http.Request) {
+		params := NewParams(r.URL)
+		sq := bleve.NewFuzzyQuery(strings.ToLower(params.Query))
+		sq.SetFuzziness(2)
+		newSearch := bleve.NewSearchRequestOptions(sq, params.Size, params.From, true)
+
+		searchResults, searchErr := Index.Search(newSearch)
+		if searchErr != nil {
+			log.Fatalln(searchErr.Error())
+		}
+
+		// removeIndexFromHits(searchResults)
 
 		out, err := json.Marshal(searchResults)
 		if err != nil {
